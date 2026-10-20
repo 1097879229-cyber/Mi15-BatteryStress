@@ -16,26 +16,42 @@ jobs:
 
       - name: Find and extract project ZIP
         run: |
+          set -e
           mkdir -p project
+
+          echo "=== 当前目录 ==="
+          pwd
+          ls -lah
+
           ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
           if [ -z "$ZIP_FILE" ]; then
-            echo "找不到项目 ZIP"
+            echo "ERROR: 找不到项目 ZIP"
             exit 1
           fi
+
           echo "使用 ZIP: $ZIP_FILE"
           unzip -q "$ZIP_FILE" -d project
 
+          echo "=== 解压后的文件 ==="
+          find project -maxdepth 3 -type f | head -100
+
       - name: Locate Android project
         run: |
-          SETTINGS_FILE=$(find project -name "settings.gradle.kts" -o -name "settings.gradle" | head -n 1)
+          set -e
+
+          SETTINGS_FILE=$(find project \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1)
+
           if [ -z "$SETTINGS_FILE" ]; then
-            echo "找不到 Android 项目"
-            find project -maxdepth 3 -type f | head -100
+            echo "ERROR: 找不到 settings.gradle.kts"
+            find project -type f | head -200
             exit 1
           fi
+
           PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+
+          echo "找到 Android 项目：$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "找到项目: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -46,27 +62,54 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
+      - name: Check Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          sdkmanager --version
+
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          set -e
+
           yes | sdkmanager --licenses || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Install Gradle
         run: |
+          set -e
+
           wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip
           unzip -q gradle-8.9-bin.zip -d "$HOME"
+
           echo "$HOME/gradle-8.9/bin" >> "$GITHUB_PATH"
+
+          "$HOME/gradle-8.9/bin/gradle" --version
 
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          gradle assembleDebug --no-daemon
+          set -o pipefail
+
+          echo "=== Android Project ==="
+          pwd
+          ls -lah
+
+          echo "=== Build ==="
+          gradle assembleDebug --no-daemon --stacktrace --info
 
       - name: Find APK
+        if: success()
         run: |
+          echo "=== APK 文件 ==="
           find "$PROJECT_DIR" -type f -name "*.apk" -print
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Mi15-BatteryStress-APK
